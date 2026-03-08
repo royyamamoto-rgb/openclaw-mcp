@@ -8,7 +8,7 @@
     "openclaw-mcp": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/index.js",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "prepublishOnly": "npm run build"
@@ -46,9 +46,7 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.10.0"
-  },
-  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.0",
     "@types/node": "^20.0.0",
     "typescript": "^5.6.0"
   }

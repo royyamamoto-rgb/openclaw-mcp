@@ -1,0 +1,8 @@
+version: 1
+name: openclaw
+description: AI agent orchestration MCP server with multi-agent pipelines, fan-out dispatch, RAG knowledge retrieval, and n8n workflow automation. 10 tools for building AI-powered business systems.
+runtime: typescript
+entry: dist/index.js
+build:
+  install: npm install
+  command: npm run build
