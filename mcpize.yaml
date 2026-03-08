@@ -6,3 +6,6 @@ entry: dist/index.js
 build:
   install: npm install
   command: npm run build
+startCommand:
+  type: stdio
+  command: node dist/index.js
