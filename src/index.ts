@@ -117,19 +117,16 @@ function createMcpServer(): Server {
 const PORT = process.env.PORT;
 
 if (PORT) {
-  // Require server token in HTTP mode
-  const SERVER_TOKEN = process.env.LUMINARAPTOR28_SERVER_TOKEN;
-  if (!SERVER_TOKEN) {
-    console.error('FATAL: LUMINARAPTOR28_SERVER_TOKEN is required in HTTP mode');
-    process.exit(1);
-  }
+  // Optional bearer token auth — enforced if set (self-hosting), skipped if unset (MCPize container mode
+  // where the gateway handles subscriber authentication and network isolation protects the container)
+  const SERVER_TOKEN = process.env.LUMINARAPTOR28_SERVER_TOKEN || '';
 
   // Streamable HTTP mode for cloud hosting (MCPize, etc.)
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() });
   const server = createMcpServer();
   await server.connect(transport);
 
-  const BIND_HOST = process.env.BIND_HOST || '127.0.0.1';
+  const BIND_HOST = process.env.BIND_HOST || '0.0.0.0';
 
   const httpServer = createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://localhost:${PORT}`);
@@ -149,13 +146,15 @@ if (PORT) {
     }
 
     if (url.pathname === '/mcp') {
-      // Bearer token authentication
-      const authHeader = req.headers['authorization'];
-      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-      if (!token || token !== SERVER_TOKEN) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Unauthorized' }));
-        return;
+      // Bearer token auth — only enforced when SERVER_TOKEN is configured
+      if (SERVER_TOKEN) {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token || token !== SERVER_TOKEN) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
       }
       await transport.handleRequest(req, res);
       return;
