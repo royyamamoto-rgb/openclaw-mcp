@@ -1,4 +1,5 @@
 import { apiRequest } from '../config.js';
+import { validateId, validateString } from '../validation.js';
 
 // ---------------------------------------------------------------------------
 // Tool definitions
@@ -49,14 +50,29 @@ export async function handleWorkflowTool(
   args: Record<string, unknown>,
 ): Promise<unknown> {
   switch (name) {
-    case 'trigger_workflow':
+    case 'trigger_workflow': {
+      const workflow_id = validateId(args.workflow_id, 'workflow_id');
+
+      // Validate data object: max 20 keys, serialized max 10000 chars
+      let data = args.data || {};
+      if (typeof data === 'object' && data !== null) {
+        const keys = Object.keys(data as Record<string, unknown>);
+        if (keys.length > 20) {
+          throw new Error('data exceeds maximum of 20 keys');
+        }
+        const serialized = JSON.stringify(data);
+        if (serialized.length > 10000) {
+          throw new Error('data exceeds maximum serialized length of 10000 characters');
+        }
+      } else {
+        data = {};
+      }
+
       return apiRequest('/api/v1/workflows/trigger', {
         method: 'POST',
-        body: {
-          workflow_id: args.workflow_id,
-          data: args.data || {},
-        },
+        body: { workflow_id, data },
       });
+    }
 
     case 'list_workflows': {
       const query: Record<string, string> = {};

@@ -16,7 +16,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { createServer } from 'http';
+import { createServer, type IncomingMessage } from 'http';
 
 import { orchestrationTools, handleOrchestrationTool } from './tools/orchestration.js';
 import { agentTools, handleAgentTool } from './tools/agents.js';
@@ -41,6 +41,32 @@ for (const tool of orchestrationTools) toolHandlers[tool.name] = handleOrchestra
 for (const tool of agentTools) toolHandlers[tool.name] = handleAgentTool;
 for (const tool of knowledgeTools) toolHandlers[tool.name] = handleKnowledgeTool;
 for (const tool of workflowTools) toolHandlers[tool.name] = handleWorkflowTool;
+
+// ---------------------------------------------------------------------------
+// Rate limiter (in-memory, per-IP)
+// ---------------------------------------------------------------------------
+
+const rateLimits = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 60; // requests per minute
+const RATE_WINDOW = 60_000; // 1 minute
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimits.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateLimits.set(ip, { count: 1, resetAt: now + RATE_WINDOW });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+function getClientIp(req: IncomingMessage): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
+  return req.socket.remoteAddress || 'unknown';
+}
 
 // ---------------------------------------------------------------------------
 // Server setup
@@ -91,21 +117,46 @@ function createMcpServer(): Server {
 const PORT = process.env.PORT;
 
 if (PORT) {
+  // Require server token in HTTP mode
+  const SERVER_TOKEN = process.env.LUMINARAPTOR28_SERVER_TOKEN;
+  if (!SERVER_TOKEN) {
+    console.error('FATAL: LUMINARAPTOR28_SERVER_TOKEN is required in HTTP mode');
+    process.exit(1);
+  }
+
   // Streamable HTTP mode for cloud hosting (MCPize, etc.)
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() });
   const server = createMcpServer();
   await server.connect(transport);
 
+  const BIND_HOST = process.env.BIND_HOST || '127.0.0.1';
+
   const httpServer = createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://localhost:${PORT}`);
+    const clientIp = getClientIp(req);
+
+    // Rate limit all endpoints
+    if (!checkRateLimit(clientIp)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Too many requests' }));
+      return;
+    }
 
     if (url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', server: 'luminaraptor28-mcp', version: '1.0.0' }));
+      res.end(JSON.stringify({ status: 'ok' }));
       return;
     }
 
     if (url.pathname === '/mcp') {
+      // Bearer token authentication
+      const authHeader = req.headers['authorization'];
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      if (!token || token !== SERVER_TOKEN) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
       await transport.handleRequest(req, res);
       return;
     }
@@ -114,8 +165,8 @@ if (PORT) {
     res.end('Not found');
   });
 
-  httpServer.listen(Number(PORT), '0.0.0.0', () => {
-    console.error(`LuminaRaptor28 MCP Server listening on port ${PORT} (Streamable HTTP at /mcp)`);
+  httpServer.listen(Number(PORT), BIND_HOST, () => {
+    console.error(`LuminaRaptor28 MCP Server listening on ${BIND_HOST}:${PORT} (Streamable HTTP at /mcp)`);
   });
 } else {
   // Stdio mode for local use (Claude Desktop, Cline, etc.)

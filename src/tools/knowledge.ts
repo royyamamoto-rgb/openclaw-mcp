@@ -1,4 +1,5 @@
 import { apiRequest } from '../config.js';
+import { validateId, validateString, validateStringOptional, validateNumber, validateArray, sanitizeText } from '../validation.js';
 
 // ---------------------------------------------------------------------------
 // Tool definitions
@@ -85,11 +86,17 @@ export async function handleKnowledgeTool(
 ): Promise<unknown> {
   switch (name) {
     case 'search_knowledge': {
-      const body: Record<string, unknown> = { query: args.query };
-      if (args.domain) body.domain = args.domain;
-      if (args.agent_id) body.agent_id = args.agent_id;
-      if (args.tags) body.tags = args.tags;
-      if (args.limit) body.limit = args.limit;
+      const query = sanitizeText(validateString(args.query, 'query', 2000));
+      const domain = validateStringOptional(args.domain, 'domain', 100);
+      const agent_id = args.agent_id !== undefined ? validateId(args.agent_id, 'agent_id') : undefined;
+      const tags = args.tags !== undefined ? validateArray(args.tags, 'tags', 10) as string[] : undefined;
+      const limit = args.limit !== undefined ? validateNumber(args.limit, 'limit', 1, 50) : undefined;
+
+      const body: Record<string, unknown> = { query };
+      if (domain) body.domain = domain;
+      if (agent_id) body.agent_id = agent_id;
+      if (tags) body.tags = tags;
+      if (limit) body.limit = limit;
 
       return apiRequest('/api/v1/knowledge/search', {
         method: 'POST',
@@ -97,18 +104,26 @@ export async function handleKnowledgeTool(
       });
     }
 
-    case 'add_knowledge':
+    case 'add_knowledge': {
+      const agent_id = validateId(args.agent_id, 'agent_id');
+      const domain = validateString(args.domain, 'domain', 100);
+      const problem_summary = sanitizeText(validateString(args.problem_summary, 'problem_summary', 5000));
+      const solution_summary = sanitizeText(validateString(args.solution_summary, 'solution_summary', 5000));
+      const tags = validateArray(args.tags, 'tags', 10) as string[];
+      const confidence = args.confidence !== undefined ? validateNumber(args.confidence, 'confidence', 0, 1) : 0.8;
+
       return apiRequest('/api/v1/knowledge', {
         method: 'POST',
         body: {
-          agent_id: args.agent_id,
-          domain: args.domain,
-          problem_summary: args.problem_summary,
-          solution_summary: args.solution_summary,
-          tags: args.tags,
-          confidence: args.confidence ?? 0.8,
+          agent_id,
+          domain,
+          problem_summary,
+          solution_summary,
+          tags,
+          confidence,
         },
       });
+    }
 
     default:
       throw new Error(`Unknown knowledge tool: ${name}`);

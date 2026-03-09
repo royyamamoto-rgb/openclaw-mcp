@@ -1,4 +1,5 @@
 import { apiRequest } from '../config.js';
+import { validateId, validateString, validateStringOptional, sanitizeText } from '../validation.js';
 
 // ---------------------------------------------------------------------------
 // Tool definitions
@@ -75,25 +76,32 @@ export async function handleAgentTool(
   switch (name) {
     case 'list_agents': {
       const query: Record<string, string> = {};
-      if (args.category && args.category !== 'all') {
-        query.category = args.category as string;
+      const category = validateStringOptional(args.category, 'category', 100);
+      if (category && category !== 'all') {
+        query.category = category;
       }
       return apiRequest('/api/v1/agents', { query });
     }
 
-    case 'dispatch_agent':
+    case 'dispatch_agent': {
+      const agent_id = validateId(args.agent_id, 'agent_id');
+      const task = sanitizeText(validateString(args.task, 'task', 5000));
+      const action = validateStringOptional(args.action, 'action', 100);
       return apiRequest('/api/v1/agents/dispatch', {
         method: 'POST',
         body: {
-          agent_id: args.agent_id,
-          task: args.task,
+          agent_id,
+          task,
           context: args.context || {},
-          action: args.action || 'execute',
+          action: action || 'execute',
         },
       });
+    }
 
-    case 'get_agent_status':
-      return apiRequest(`/api/v1/agents/${encodeURIComponent(args.agent_id as string)}/status`);
+    case 'get_agent_status': {
+      const agent_id = validateId(args.agent_id, 'agent_id');
+      return apiRequest(`/api/v1/agents/${encodeURIComponent(agent_id)}/status`);
+    }
 
     default:
       throw new Error(`Unknown agent tool: ${name}`);

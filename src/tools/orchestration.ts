@@ -1,4 +1,5 @@
 import { apiRequest } from '../config.js';
+import { validateId, validateString, validateArray, sanitizeText } from '../validation.js';
 
 // ---------------------------------------------------------------------------
 // Tool definitions
@@ -110,37 +111,44 @@ export async function handleOrchestrationTool(
   args: Record<string, unknown>,
 ): Promise<unknown> {
   switch (name) {
-    case 'run_pipeline':
+    case 'run_pipeline': {
+      const pipeline_id = validateId(args.pipeline_id, 'pipeline_id');
+      const task = sanitizeText(validateString(args.task, 'task', 5000));
       return apiRequest('/api/v1/pipelines/run', {
         method: 'POST',
         body: {
-          pipeline_id: args.pipeline_id,
-          task: args.task,
+          pipeline_id,
+          task,
           context: args.context || {},
         },
       });
+    }
 
-    case 'fan_out':
+    case 'fan_out': {
+      const agentIds = validateArray(args.agent_ids, 'agent_ids', 10) as string[];
+      for (const id of agentIds) validateId(id, 'agent_ids[]');
+      const task = sanitizeText(validateString(args.task, 'task', 5000));
       return apiRequest('/api/v1/orchestration/fan-out', {
         method: 'POST',
         body: {
-          agent_ids: args.agent_ids,
-          task: args.task,
+          agent_ids: agentIds,
+          task,
           context: args.context || {},
           aggregation: args.aggregation || 'all',
         },
       });
+    }
 
-    case 'create_pipeline':
+    case 'create_pipeline': {
+      const id = validateId(args.id, 'id');
+      const pName = validateString(args.name, 'name', 200);
+      const description = sanitizeText(validateString(args.description, 'description', 2000));
+      const steps = validateArray(args.steps, 'steps', 20);
       return apiRequest('/api/v1/pipelines', {
         method: 'POST',
-        body: {
-          id: args.id,
-          name: args.name,
-          description: args.description,
-          steps: args.steps,
-        },
+        body: { id, name: pName, description, steps },
       });
+    }
 
     default:
       throw new Error(`Unknown orchestration tool: ${name}`);

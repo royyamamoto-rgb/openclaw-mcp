@@ -13,8 +13,20 @@ export interface LuminaRaptor28Config {
 }
 
 export function getConfig(): LuminaRaptor28Config {
+  const apiKey = process.env.LUMINARAPTOR28_API_KEY;
+  if (!apiKey) {
+    console.error('FATAL: LUMINARAPTOR28_API_KEY environment variable is required');
+    process.exit(1);
+  }
+
   const apiUrl = (process.env.LUMINARAPTOR28_API_URL || 'http://localhost:1878').replace(/\/+$/, '');
-  const apiKey = process.env.LUMINARAPTOR28_API_KEY || '';
+  try {
+    new URL(apiUrl);
+  } catch {
+    console.error('FATAL: LUMINARAPTOR28_API_URL is not a valid URL');
+    process.exit(1);
+  }
+
   return { apiUrl, apiKey };
 }
 
@@ -43,33 +55,38 @@ export async function apiRequest<T = unknown>(
 
   const headers: Record<string, string> = {
     'Accept': 'application/json',
+    'Authorization': `Bearer ${apiKey}`,
   };
-
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
 
   if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(
-      `LuminaRaptor28 API error: ${method} ${path} returned HTTP ${response.status}${text ? ` — ${text}` : ''}`,
-    );
+  try {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      // Log full error internally but don't expose backend details to clients
+      const text = await response.text().catch(() => '');
+      console.error(`API error detail: ${method} ${path} HTTP ${response.status} — ${text}`);
+      throw new Error(`API request failed: ${method} ${path} returned HTTP ${response.status}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return (await response.json()) as T;
+    }
+
+    return (await response.text()) as unknown as T;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    return (await response.json()) as T;
-  }
-
-  return (await response.text()) as unknown as T;
 }

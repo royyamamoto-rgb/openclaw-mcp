@@ -5,6 +5,8 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 appuser
+USER appuser
 ENV PORT=8080
 EXPOSE 8080
 CMD ["node", "dist/index.js"]
